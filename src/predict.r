@@ -21,8 +21,9 @@ PREDICTOR_FILE_PATH <- file.path(PREDICTOR_DIR_PATH, "predictor.rds")
 IMPUTATION_FILE <- file.path(MODEL_ARTIFACTS_PATH, 'imputation.rds')
 PREDICTIONS_DIR <- file.path(OUTPUT_DIR, 'predictions')
 PREDICTIONS_FILE <- file.path(PREDICTIONS_DIR, 'predictions.csv')
-TOP_3_CATEGORIES_MAP <- file.path(MODEL_ARTIFACTS_PATH, "top_3_map.rds")
+TOP_10_CATEGORIES_MAP <- file.path(MODEL_ARTIFACTS_PATH, "top_10_map.rds")
 COLNAME_MAPPING <- file.path(MODEL_ARTIFACTS_PATH, "colname_mapping.csv")
+SCALING_FILE <- file.path(MODEL_ARTIFACTS_PATH, "scaler.rds")
 
 
 if (!dir.exists(PREDICTIONS_DIR)) {
@@ -66,11 +67,11 @@ df[[id_feature]] <- NULL
 # Encoding
 # We encode the data using the same encoder that we saved during training.
 if (length(categorical_features) > 0 && file.exists(OHE_ENCODER_FILE)) {
-  top_3_map <- readRDS(TOP_3_CATEGORIES_MAP)
+  top_10_map <- readRDS(TOP_10_CATEGORIES_MAP)
   encoder <- readRDS(OHE_ENCODER_FILE)
   for(col in categorical_features) {
-    # Use the saved top 3 categories to replace values outside these categories with 'Other'
-    df[[col]][!(df[[col]] %in% top_3_map[[col]])] <- "Other"
+    # Use the saved top 10 categories to replace values outside these categories with 'Other'
+    df[[col]][!(df[[col]] %in% top_10_map[[col]])] <- "Other"
   }
 
   test_df_encoded <- dummy_cols(df, select_columns = categorical_features, remove_selected_columns = TRUE)
@@ -85,6 +86,21 @@ if (length(categorical_features) > 0 && file.exists(OHE_ENCODER_FILE)) {
 # Remove extra columns
     extra_cols <- setdiff(colnames(test_df_encoded), c(colnames(df), encoded_columns))
     df <- test_df_encoded[, !names(test_df_encoded) %in% extra_cols]
+}
+
+# Standard Scaling
+scaling_values <- readRDS(SCALING_FILE) # Assuming you've saved scaling values during training
+for (feature in numeric_features) {
+    df[[feature]] <- (df[[feature]] - scaling_values[[feature]]$mean) / scaling_values[[feature]]$std
+}
+
+# Outlier Capping for Standard Scaled Data
+lower_bound <- -4
+upper_bound <- 4
+
+for (feature in numeric_features) {
+    df[[feature]] <- ifelse(df[[feature]] < lower_bound, lower_bound, df[[feature]])
+    df[[feature]] <- ifelse(df[[feature]] > upper_bound, upper_bound, df[[feature]])
 }
 
 # Load the column name mapping

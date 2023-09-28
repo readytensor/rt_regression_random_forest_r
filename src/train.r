@@ -18,8 +18,9 @@ MODEL_ARTIFACTS_PATH <- file.path(MODEL_INPUTS_OUTPUTS, "model", "artifacts")
 OHE_ENCODER_FILE <- file.path(MODEL_ARTIFACTS_PATH, 'ohe.rds')
 PREDICTOR_FILE_PATH <- file.path(MODEL_ARTIFACTS_PATH, "predictor", "predictor.rds")
 IMPUTATION_FILE <- file.path(MODEL_ARTIFACTS_PATH, 'imputation.rds')
-TOP_3_CATEGORIES_MAP <- file.path(MODEL_ARTIFACTS_PATH, "top_3_map.rds")
+TOP_10_CATEGORIES_MAP <- file.path(MODEL_ARTIFACTS_PATH, "top_10_map.rds")
 COLNAME_MAPPING <- file.path(MODEL_ARTIFACTS_PATH, "colname_mapping.csv")
+SCALING_FILE <- file.path(MODEL_ARTIFACTS_PATH, "scaler.rds")
 
 
 if (!dir.exists(MODEL_ARTIFACTS_PATH)) {
@@ -55,25 +56,6 @@ col_names <- unlist(strsplit(header_line, split = ",")) # assuming ',' is the de
 df <- read.csv(file.path(TRAIN_DIR, file_name), skip = 0, col.names = col_names, check.names=FALSE)
 
 # Data Preprocessing
-# Data preprocessing is very important before training the model, as the data may contain missing values in some cells. 
-# Moreover, most of the learning algorithms cannot work with categorical data, thus the data has to be encoded.
-# In this section we will impute the missing values and encode the categorical features. Afterwards the data will be ready to train the model.
-
-# You can add your own preprocessing steps such as:
-
-# Normalization
-# Outlier removal
-# Dropping or adding features
-
-# Important note:
-# Saving the values used for imputation during training step is crucial. 
-# These values will be used to impute missing data in the testing set. 
-# This is very important to avoid the well known problem of data leakage. 
-# During testing, you should not make any assumptions about the data in hand, 
-# alternatively anything needed during the testing phase should be learned from the training phase.
-# This is why we are creating a dictionary of values used during training to reuse these values during testing.
-
-
 # Impute missing data
 imputation_values <- list()
 
@@ -102,22 +84,44 @@ df <- df %>% select(-all_of(c(id_feature, target_feature)))
 
 # One Hot Encoding
 if(length(categorical_features) > 0){
-    top_3_map <- list()
+    top_10_map <- list()
     for(col in categorical_features) {
-        # Get the top 3 categories for the column
-        top_3_categories <- names(sort(table(df[[col]]), decreasing = TRUE)[1:3])
+        # Get the top 10 categories for the column
+        top_10_categories <- names(sort(table(df[[col]]), decreasing = TRUE)[1:10])
 
         # Save the top 3 categories for this column
-        top_3_map[[col]] <- top_3_categories
+        top_10_map[[col]] <- top_10_categories
         # Replace categories outside the top 3 with "Other"
-        df[[col]][!(df[[col]] %in% top_3_categories)] <- "Other"
+        df[[col]][!(df[[col]] %in% top_10_categories)] <- "Other"
     }
 
     df_encoded <- dummy_cols(df, select_columns = categorical_features, remove_selected_columns = TRUE)
     encoded_columns <- setdiff(colnames(df_encoded), colnames(df))
     saveRDS(encoded_columns, OHE_ENCODER_FILE)
-    saveRDS(top_3_map, TOP_3_CATEGORIES_MAP)
+    saveRDS(top_10_map, TOP_10_CATEGORIES_MAP)
     df <- df_encoded
+}
+
+# Standard Scaling
+scaling_values <- list()
+for (feature in numeric_features) {
+    feature_mean <- mean(df[[feature]], na.rm = TRUE)
+    feature_std <- sd(df[[feature]], na.rm = TRUE)
+    scaling_values[[feature]] <- list(mean = feature_mean, std = feature_std)
+    
+    # Standardize the feature
+    df[[feature]] <- (df[[feature]] - feature_mean) / feature_std
+}
+
+# Save the scaling values for use during testing
+saveRDS(scaling_values, SCALING_FILE)
+
+# Cap outliers
+lower_bound <- -4
+upper_bound <- 4
+for (feature in numeric_features) {
+    df[[feature]] <- ifelse(df[[feature]] < lower_bound, lower_bound, df[[feature]])
+    df[[feature]] <- ifelse(df[[feature]] > upper_bound, upper_bound, df[[feature]])
 }
 
 
